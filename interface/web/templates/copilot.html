@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Mimir Copilot</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            margin: 0;
+            padding: 20px;
+            min-height: 100vh;
+            color: #333;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 3em;
+        }
+        .header p {
+            margin: 10px 0 0;
+            opacity: 0.9;
+        }
+        .content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            padding: 30px;
+        }
+        .panel {
+            background: #f5f5f5;
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        .panel h2 {
+            margin-top: 0;
+            color: #667eea;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+        }
+        .command-input {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #ddd;
+            border-radius: 10px;
+            font-size: 16px;
+            margin-bottom: 10px;
+            box-sizing: border-box;
+        }
+        .button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 10px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: transform 0.2s;
+            width: 100%;
+        }
+        .button:hover {
+            transform: translateY(-2px);
+        }
+        .output {
+            background: #1e1e1e;
+            color: #00ff00;
+            padding: 20px;
+            border-radius: 10px;
+            font-family: 'Courier New', monospace;
+            margin-top: 20px;
+            white-space: pre-wrap;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .metric-card {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        .metric-value {
+            font-size: 2em;
+            font-weight: bold;
+            color: #667eea;
+        }
+        .metric-label {
+            color: #666;
+            margin-top: 5px;
+        }
+        .tab-bar {
+            display: flex;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #ddd;
+        }
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            background: none;
+            border: none;
+            font-size: 16px;
+            color: #666;
+        }
+        .tab.active {
+            color: #667eea;
+            border-bottom: 2px solid #667eea;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🤖 MIMIR COPILOT</h1>
+            <p>Your AI-Powered Linux Assistant</p>
+        </div>
+        
+        <div class="tab-bar">
+            <button class="tab active" onclick="showTab('assistant')">Assistant</button>
+            <button class="tab" onclick="showTab('metrics')">System Metrics</button>
+            <button class="tab" onclick="showTab('terminal')">Terminal</button>
+        </div>
+        
+        <div id="assistant" class="content">
+            <div class="panel">
+                <h2>💡 Suggest Command</h2>
+                <input type="text" id="taskInput" class="command-input" 
+                       placeholder="e.g., find large files">
+                <button class="button" onclick="suggestCommand()">Suggest</button>
+                <div id="suggestionOutput" class="output"></div>
+            </div>
+            
+            <div class="panel">
+                <h2>📖 Explain Command</h2>
+                <input type="text" id="commandInput" class="command-input" 
+                       placeholder="e.g., ls -la">
+                <button class="button" onclick="explainCommand()">Explain</button>
+                <div id="explainOutput" class="output"></div>
+            </div>
+            
+            <div class="panel">
+                <h2>🔍 Diagnose Issue</h2>
+                <select id="issueSelect" class="command-input">
+                    <option value="slow">Slow System</option>
+                    <option value="memory">Memory Issues</option>
+                    <option value="disk">Disk Space</option>
+                    <option value="cpu">CPU Problems</option>
+                    <option value="network">Network Issues</option>
+                    <option value="crash">System Crashes</option>
+                </select>
+                <button class="button" onclick="diagnose()">Diagnose</button>
+                <div id="diagnoseOutput" class="output"></div>
+            </div>
+        </div>
+        
+        <div id="metrics" style="display:none;" class="content">
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div class="metric-value" id="cpuValue">0%</div>
+                    <div class="metric-label">CPU Usage</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value" id="memoryValue">0%</div>
+                    <div class="metric-label">Memory Usage</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value" id="diskValue">0%</div>
+                    <div class="metric-label">Disk Usage</div>
+                </div>
+            </div>
+            <div class="panel">
+                <h2>🔄 Live System Metrics</h2>
+                <div id="metricsOutput" class="output"></div>
+            </div>
+        </div>
+        
+        <div id="terminal" style="display:none;" class="content">
+            <div class="panel">
+                <h2>💻 Web Terminal</h2>
+                <input type="text" id="terminalInput" class="command-input" 
+                       placeholder="Enter command to run">
+                <button class="button" onclick="runCommand()">Run</button>
+                <div id="terminalOutput" class="output"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function showTab(tabName) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            event.target.classList.add('active');
+            
+            document.querySelectorAll('#assistant, #metrics, #terminal').forEach(el => {
+                el.style.display = 'none';
+            });
+            document.getElementById(tabName).style.display = 'grid';
+        }
+        
+        async function suggestCommand() {
+            const task = document.getElementById('taskInput').value;
+            const output = document.getElementById('suggestionOutput');
+            
+            if (!task) {
+                output.textContent = 'Please enter a task';
+                return;
+            }
+            
+            output.textContent = 'Thinking...';
+            
+            try {
+                const response = await fetch('/api/command/suggest', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({task: task})
+                });
+                const data = await response.json();
+                
+                output.innerHTML = `💡 Suggested: ${data.command}\n📝 ${data.explanation}\n🎯 Confidence: ${data.confidence*100}%`;
+            } catch (error) {
+                output.textContent = 'Error: ' + error;
+            }
+        }
+        
+        async function explainCommand() {
+            const cmd = document.getElementById('commandInput').value;
+            const output = document.getElementById('explainOutput');
+            
+            if (!cmd) {
+                output.textContent = 'Please enter a command';
+                return;
+            }
+            
+            output.textContent = 'Analyzing...';
+            
+            try {
+                const response = await fetch('/api/command/explain', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({command: cmd})
+                });
+                const data = await response.json();
+                
+                let html = `📖 ${data.explanation}`;
+                if (data.examples && data.examples.length) {
+                    html += '\n\n💡 Examples:\n' + data.examples.map(ex => '  • ' + ex).join('\n');
+                }
+                output.innerHTML = html;
+            } catch (error) {
+                output.textContent = 'Error: ' + error;
+            }
+        }
+        
+        async function diagnose() {
+            const issue = document.getElementById('issueSelect').value;
+            const output = document.getElementById('diagnoseOutput');
+            
+            output.textContent = 'Diagnosing...';
+            
+            try {
+                const response = await fetch(`/api/system/diagnose?issue=${issue}`);
+                const data = await response.json();
+                
+                let html = `📋 DIAGNOSIS: ${data.issue}\n`;
+                html += '🔴 Findings:\n' + data.diagnosis.map(d => '  • ' + d).join('\n');
+                html += '\n\n💡 Suggestions:\n' + data.suggestions.map(s => '  • ' + s).join('\n');
+                
+                output.innerHTML = html;
+            } catch (error) {
+                output.textContent = 'Error: ' + error;
+            }
+        }
+        
+        async function updateMetrics() {
+            try {
+                const response = await fetch('/api/system/status');
+                const data = await response.json();
+                
+                document.getElementById('cpuValue').textContent = data.cpu + '%';
+                document.getElementById('memoryValue').textContent = data.memory + '%';
+                document.getElementById('diskValue').textContent = data.disk + '%';
+                
+                const output = document.getElementById('metricsOutput');
+                output.innerHTML = `CPU: ${data.cpu}%\nMemory: ${data.memory}%\nDisk: ${data.disk}%\nUptime: ${Math.floor(data.uptime/3600)} hours`;
+            } catch (error) {
+                console.error('Metrics update failed:', error);
+            }
+        }
+        
+        async function runCommand() {
+            const cmd = document.getElementById('terminalInput').value;
+            const output = document.getElementById('terminalOutput');
+            
+            if (!cmd) {
+                output.textContent = 'Please enter a command';
+                return;
+            }
+            
+            output.textContent = 'Running...';
+            
+            try {
+                const response = await fetch('/api/command/run', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({command: cmd})
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    output.innerHTML = data.stdout || 'Command executed successfully';
+                    if (data.stderr) output.innerHTML += '\n\n⚠️ Errors:\n' + data.stderr;
+                } else {
+                    output.innerHTML = '❌ Error: ' + data.error;
+                }
+            } catch (error) {
+                output.textContent = 'Error: ' + error;
+            }
+        }
+        
+        // Update metrics every 5 seconds
+        setInterval(updateMetrics, 5000);
+        updateMetrics();
+    </script>
+</body>
+</html>
+
