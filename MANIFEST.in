@@ -1,0 +1,7 @@
+include README.md
+include LICENSE
+include requirements.txt
+recursive-include interface/web/templates *.html
+recursive-include interface/web/static *
+recursive-include assets *
+recursive-include scripts *.sh

@@ -1,1 +1,18 @@
-# Python__pycache__/*.py[cod]*$py.class*.so.Pythonvenv/env/ENV/build/develop-eggs/dist/downloads/eggs/.eggs/lib/lib64/parts/sdist/var/wheels/*.egg-info/.installed.cfg*.egg# Virtual Environmentvenv/env/.env# IDE.vscode/.idea/*.swp*.swo*~.DS_Store# Logs and datalogs/*.logdata/*.db*.sqlite*.db-journal# Local configconfig/local.py.env.local.env# OS filesThumbs.db.DS_Store# Backup files*.bak*.backup*.tar.gz*.zip# Mimir specific*.pid*.sock
+# Python__pycache__/*.py[cod]*$py.class*.so.Pythonvenv/env/ENV/build/develop-eggs/dist/downloads/eggs/.eggs/lib/lib64/parts/sdist/var/wheels/*.egg-info/.installed.cfg*.egg# Virtual Environmentvenv/env/.env# IDE.vscode/.idea/*.swp*.swo*~.DS_Store# Logs and datalogs/*.logdata/*.db*.sqlite*.db-journal# Local configconfig/local.py.env.local.env# OS filesThumbs.db.DS_Store# Backup files*.bak*.backup*.tar.gz*.zip# Mimir specific*.pid*.sockvenv/
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+*.egg
+
+# Test files
+test_*.py
+test_*.log
+
+# Backup files
+*.backup
+*.bak
+
+# Analytics data
+core/analytics/data/

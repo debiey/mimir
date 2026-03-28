@@ -1,276 +1,321 @@
-"""AI Copilot Engine for Mimir"""
+"""AI Copilot Engine with local LLM support and model registry"""
 import os
 import subprocess
 import json
 import psutil
-from datetime import datetime
+import time
 import platform
+from typing import Optional, Dict, List
+
+try:
+    from core.llm.ollama_client import OllamaClient
+    from core.llm.model_registry import ModelRegistry, ModelCategory
+    OLLAMA_AVAILABLE = True
+except ImportError:
+    OLLAMA_AVAILABLE = False
+
+try:
+    from core.nlp.nlp_engine import NLPEngine
+    NLP_AVAILABLE = True
+except ImportError:
+    NLP_AVAILABLE = False
+
 
 class AICopilot:
-    """AI-powered Linux assistant"""
+    """AI-powered Linux assistant with optional local LLM"""
     
-    def __init__(self):
+    def __init__(self, use_llm: bool = False, model: str = "tinyllama"):
+        self.use_llm = use_llm
+        self.llm = None
+        self.model_name = model
         self.context = []
-        self.command_history = []
-        self.system_info = self._get_system_info()
         
+        # Initialize NLP engine
+        self.nlp = NLPEngine(self) if NLP_AVAILABLE else None
+        
+        if use_llm and OLLAMA_AVAILABLE:
+            try:
+                self.llm = OllamaClient(model=model)
+                self.model_name = self.llm.model
+                print(f"Local LLM initialized with model: {self.model_name}")
+            except Exception as e:
+                print(f"Warning: Failed to initialize LLM: {e}")
+                self.use_llm = False
+        
+        self.system_info = self._get_system_info()
+    
     def _get_system_info(self):
-        """Get comprehensive system info"""
+        """Get comprehensive system info for context"""
         return {
             'os': platform.system(),
             'os_version': platform.version(),
             'hostname': platform.node(),
-            'cpu': psutil.cpu_count(),
-            'memory': psutil.virtual_memory().total / 1024**3,
+            'cpu_count': psutil.cpu_count(),
+            'memory_gb': psutil.virtual_memory().total / 1024**3,
             'python': platform.python_version()
         }
     
-    def suggest_command(self, task_description):
-        """Suggest a Linux command based on task description"""
+    def _get_system_prompt(self) -> str:
+        """Get system prompt with context"""
+        return f"""You are Mimir, an intelligent Linux assistant integrated directly into the system.
+You have real-time access to system information and can suggest commands.
+
+Current system context:
+- OS: {self.system_info['os']} {self.system_info['os_version']}
+- Hostname: {self.system_info['hostname']}
+- CPU cores: {self.system_info['cpu_count']}
+- RAM: {self.system_info['memory_gb']:.1f} GB
+- Python: {self.system_info['python']}
+- Current model: {self.model_name}
+
+Guidelines:
+1. Be concise but thorough
+2. When suggesting commands, explain what they do
+3. If asked about system issues, use the actual metrics
+4. For dangerous commands (rm -rf, dd, etc.), include a warning
+5. Prioritize safety and suggest backups when appropriate
+6. If you don't know something, say so honestly
+7. Keep responses under 500 words unless the user asks for detail"""
+    
+    def understand(self, query: str) -> str:
+        """Process natural language query - uses LLM or NLP engine"""
+        # First try NLP intent recognition
+        if self.nlp:
+            intent, response = self.nlp.understand(query)
+            if response:
+                return response
+        
+        # If NLP didn't match or LLM is enabled, use LLM
+        if self.use_llm and self.llm:
+            try:
+                return self.llm.chat(query, system_prompt=self._get_system_prompt())
+            except Exception as e:
+                return f"LLM error: {e}. Falling back to rule-based."
+        
+        # Fallback to rule-based
+        return self._rule_based_understand(query)
+    
+    def _rule_based_understand(self, query: str) -> str:
+        """Fallback rule-based understanding"""
+        q = query.lower()
+        
+        if 'slow' in q or 'performance' in q:
+            cpu = psutil.cpu_percent()
+            mem = psutil.virtual_memory().percent
+            disk = psutil.disk_usage('/').percent
+            
+            issues = []
+            if cpu > 80:
+                issues.append(f"High CPU: {cpu}%")
+            if mem > 80:
+                issues.append(f"High Memory: {mem}%")
+            if disk > 85:
+                issues.append(f"Low Disk: {disk}%")
+            
+            if issues:
+                return f"⚠️ Issues detected:\n- " + "\n- ".join(issues) + "\n\nTry 'heal' to fix automatically."
+            return "✅ System performance looks normal. Check 'top' for process details."
+        
+        elif 'memory' in q or 'ram' in q:
+            mem = psutil.virtual_memory()
+            return f"💾 Memory: {mem.percent}% used ({mem.used/1024**3:.1f}/{mem.total/1024**3:.1f} GB)"
+        
+        elif 'disk' in q or 'space' in q:
+            disk = psutil.disk_usage('/')
+            return f"💽 Disk: {disk.percent}% used ({disk.used/1024**3:.1f}/{disk.total/1024**3:.1f} GB)"
+        
+        elif 'cpu' in q:
+            cpu = psutil.cpu_percent()
+            cores = psutil.cpu_count()
+            return f"🔥 CPU: {cpu}% ({cores} cores)"
+        
+        elif 'network' in q:
+            net = psutil.net_io_counters()
+            return f"🌐 Network: Sent {net.bytes_sent/1024**2:.1f}MB, Received {net.bytes_recv/1024**2:.1f}MB"
+        
+        elif 'users' in q:
+            users = psutil.users()
+            return f"👥 Logged-in users: {', '.join([u.name for u in users])}"
+        
+        elif 'uptime' in q:
+            uptime = time.time() - psutil.boot_time()
+            days = int(uptime // 86400)
+            hours = int((uptime % 86400) // 3600)
+            return f"⏱️ Uptime: {days}d {hours}h"
+        
+        elif 'find' in q and 'large' in q:
+            return "🔍 To find large files:\n   find / -type f -size +100M -ls 2>/dev/null | head -20"
+        
+        elif 'update' in q or 'upgrade' in q:
+            return "📦 To update system:\n   sudo apt update && sudo apt upgrade -y"
+        
+        else:
+            return f"I understand you're asking about '{query}'.\n\nI can help with:\n- System performance ('why slow?')\n- Memory usage\n- Disk space\n- CPU usage\n- Network status\n- Finding large files\n- System updates\n\nTry 'llm on' to enable AI-powered responses!"
+    
+    def suggest_command(self, task: str) -> dict:
+        """Suggest a command for a task"""
+        if self.use_llm and self.llm:
+            prompt = f"""Suggest a Linux command for: {task}
+            
+Return in this exact format:
+COMMAND: [the command]
+EXPLANATION: [brief explanation]
+CONFIDENCE: [0-100]"""
+            
+            try:
+                response = self.llm.generate(prompt, system_prompt="You are a Linux expert. Be precise.")
+                
+                command = ""
+                explanation = ""
+                confidence = 0.5
+                
+                for line in response.split('\n'):
+                    if line.startswith('COMMAND:'):
+                        command = line[8:].strip()
+                    elif line.startswith('EXPLANATION:'):
+                        explanation = line[12:].strip()
+                    elif line.startswith('CONFIDENCE:'):
+                        try:
+                            confidence = int(line[11:].strip()) / 100
+                        except:
+                            confidence = 0.7
+                
+                if command:
+                    return {
+                        'command': command,
+                        'explanation': explanation,
+                        'confidence': confidence
+                    }
+            except:
+                pass
+        
+        # Fallback rule-based suggestions
         suggestions = {
             'find large files': 'find / -type f -size +100M 2>/dev/null | head -20',
             'check disk space': 'df -h',
             'check memory': 'free -h',
             'check processes': 'ps aux --sort=-%cpu | head -20',
-            'kill process': 'kill -9 [PID]',
-            'backup directory': 'tar -czf backup.tar.gz [directory]',
-            'monitor network': 'iftop or nethogs',
-            'check logs': 'journalctl -xe',
-            'update system': 'sudo apt update && sudo apt upgrade -y',
             'clean system': 'sudo apt autoremove && sudo apt autoclean',
-            'check temperature': 'sensors',
-            'check users': 'who',
-            'check services': 'systemctl list-units --type=service',
-            'check ports': 'netstat -tulpn',
-            'check firewall': 'sudo ufw status',
         }
         
-        for key, command in suggestions.items():
-            if key in task_description.lower():
+        for key, cmd in suggestions.items():
+            if key in task.lower():
                 return {
-                    'command': command,
-                    'explanation': f"This command will {key}",
+                    'command': cmd,
+                    'explanation': f"Runs command to {key}",
                     'confidence': 0.9
                 }
         
-        # Default suggestion
         return {
-            'command': f"man -k {task_description}",
-            'explanation': "Searching man pages for related commands",
+            'command': f"man -k {task}",
+            'explanation': f"Search man pages for '{task}'",
             'confidence': 0.5
         }
     
-    def explain_command(self, command):
-        """Explain what a Linux command does"""
-        explanations = {
+    def explain_command(self, command: str) -> dict:
+        """Explain what a command does"""
+        if self.use_llm and self.llm:
+            prompt = f"""Explain this Linux command: {command}
+            
+Return in this format:
+EXPLANATION: [detailed explanation]
+EXAMPLES: [1-2 examples]"""
+            
+            try:
+                response = self.llm.generate(prompt)
+                
+                explanation = ""
+                examples = []
+                
+                for line in response.split('\n'):
+                    if line.startswith('EXPLANATION:'):
+                        explanation = line[12:].strip()
+                    elif line.startswith('EXAMPLES:'):
+                        examples = [line[9:].strip()]
+                
+                if explanation:
+                    return {
+                        'command': command,
+                        'explanation': explanation,
+                        'examples': examples
+                    }
+            except:
+                pass
+        
+        # Fallback explanations
+        common = {
             'ls': 'List directory contents',
             'cd': 'Change directory',
-            'pwd': 'Print working directory',
-            'cp': 'Copy files or directories',
-            'mv': 'Move/rename files or directories',
-            'rm': 'Remove files or directories',
-            'mkdir': 'Create directories',
-            'rmdir': 'Remove empty directories',
-            'touch': 'Create empty files or update timestamps',
-            'cat': 'Concatenate and display files',
             'grep': 'Search for patterns in files',
-            'find': 'Search for files in directory hierarchy',
             'ps': 'Report process status',
             'kill': 'Terminate processes',
-            'top': 'Display Linux processes',
-            'htop': 'Interactive process viewer',
-            'df': 'Report file system disk space usage',
+            'df': 'Report disk space usage',
             'du': 'Estimate file space usage',
             'free': 'Display memory usage',
-            'uname': 'Print system information',
-            'whoami': 'Print current user',
-            'sudo': 'Execute command as superuser',
-            'apt': 'Package management tool',
-            'systemctl': 'Control systemd system and service manager',
-            'journalctl': 'Query systemd journal',
-            'ssh': 'OpenSSH remote login client',
-            'scp': 'Secure copy (remote file copy)',
-            'wget': 'Network downloader',
-            'curl': 'Transfer data from or to a server',
         }
         
-        cmd = command.split()[0]
-        if cmd in explanations:
+        base = command.split()[0]
+        if base in common:
             return {
                 'command': command,
-                'explanation': explanations[cmd],
-                'examples': self._get_examples(cmd)
+                'explanation': common[base],
+                'examples': [f"{base} --help"]
             }
-        else:
-            return {
-                'command': command,
-                'explanation': f"Run 'man {cmd}' for detailed information",
-                'examples': []
-            }
-    
-    def _get_examples(self, cmd):
-        """Get examples for common commands"""
-        examples = {
-            'ls': ['ls -la', 'ls *.txt', 'ls -lh'],
-            'grep': ['grep "error" logfile.txt', 'grep -r "TODO" .', 'ps aux | grep python'],
-            'find': ['find . -name "*.py"', 'find / -size +100M', 'find . -mtime -7'],
-            'kill': ['kill -9 1234', 'killall firefox', 'pkill python'],
+        
+        return {
+            'command': command,
+            'explanation': f"Run 'man {base}' for detailed information",
+            'examples': []
         }
-        return examples.get(cmd, [])
     
-    def diagnose_issue(self, issue_description):
+    def diagnose_issue(self, issue: str) -> dict:
         """Diagnose system issues"""
-        issues = {
-            'slow': self._diagnose_slow,
-            'memory': self._diagnose_memory,
-            'disk': self._diagnose_disk,
-            'cpu': self._diagnose_cpu,
-            'network': self._diagnose_network,
-            'crash': self._diagnose_crash,
-        }
+        if self.use_llm and self.llm:
+            prompt = f"""Diagnose this Linux system issue: {issue}
+            
+Return in this format:
+DIAGNOSIS: [list of findings]
+SUGGESTIONS: [list of fixes]"""
+            
+            try:
+                response = self.llm.generate(prompt)
+                
+                diagnosis = []
+                suggestions = []
+                current = None
+                
+                for line in response.split('\n'):
+                    if line.startswith('DIAGNOSIS:'):
+                        current = 'diagnosis'
+                    elif line.startswith('SUGGESTIONS:'):
+                        current = 'suggestions'
+                    elif line.startswith('- ') and current == 'diagnosis':
+                        diagnosis.append(line[2:].strip())
+                    elif line.startswith('- ') and current == 'suggestions':
+                        suggestions.append(line[2:].strip())
+                
+                if diagnosis or suggestions:
+                    return {
+                        'issue': issue,
+                        'diagnosis': diagnosis,
+                        'suggestions': suggestions,
+                        'severity': 'warning'
+                    }
+            except:
+                pass
         
-        for key, diagnostic in issues.items():
-            if key in issue_description.lower():
-                return diagnostic()
-        
-        return self._general_diagnosis()
-    
-    def _diagnose_slow(self):
-        """Diagnose slow system"""
-        cpu = psutil.cpu_percent(interval=1)
-        mem = psutil.virtual_memory()
-        disk = psutil.disk_usage('/')
-        
-        issues = []
-        if cpu > 80:
-            issues.append(f"High CPU: {cpu}%")
-        if mem.percent > 80:
-            issues.append(f"High Memory: {mem.percent}%")
-        if disk.percent > 85:
-            issues.append(f"Low Disk: {disk.percent}%")
-        
-        suggestions = []
-        if cpu > 80:
-            suggestions.append("Run 'top' to find CPU hogs")
-            suggestions.append("Consider: kill -9 [high CPU PID]")
-        if mem.percent > 80:
-            suggestions.append("Clear cache: sync && echo 3 | sudo tee /proc/sys/vm/drop_caches")
-        if disk.percent > 85:
-            suggestions.append("Clean packages: sudo apt clean")
-            suggestions.append("Remove old logs: sudo journalctl --vacuum-time=3d")
-        
+        # Fallback
         return {
-            'issue': 'System Performance',
-            'diagnosis': issues,
-            'suggestions': suggestions,
-            'severity': 'critical' if len(issues) > 1 else 'warning'
+            'issue': 'General Check',
+            'diagnosis': ['System appears operational'],
+            'suggestions': ['Run "status" for details', 'Run "health" for health score'],
+            'severity': 'info'
         }
     
-    def _diagnose_memory(self):
-        mem = psutil.virtual_memory()
-        swap = psutil.swap_memory()
-        
-        issues = []
-        if mem.percent > 90:
-            issues.append(f"Critical memory: {mem.percent}%")
-        elif mem.percent > 75:
-            issues.append(f"High memory: {mem.percent}%")
-        
-        return {
-            'issue': 'Memory Usage',
-            'diagnosis': issues + [f"Swap: {swap.percent}%"],
-            'suggestions': [
-                "Check top memory processes: ps aux --sort=-%mem | head -10",
-                "Clear cache: sync && echo 3 | sudo tee /proc/sys/vm/drop_caches",
-                "Consider adding more RAM if persistent"
-            ]
-        }
-    
-    def _diagnose_disk(self):
-        disk = psutil.disk_usage('/')
-        
-        issues = []
-        if disk.percent > 95:
-            issues.append(f"Critical disk space: {disk.percent}%")
-        elif disk.percent > 85:
-            issues.append(f"Low disk space: {disk.percent}%")
-        
-        return {
-            'issue': 'Disk Usage',
-            'diagnosis': issues + [f"Free: {disk.free/1024**3:.1f}GB"],
-            'suggestions': [
-                "Find large files: find / -type f -size +100M 2>/dev/null",
-                "Clean packages: sudo apt clean",
-                "Remove old kernels: sudo apt autoremove",
-                "Clear journal: sudo journalctl --vacuum-time=7d"
-            ]
-        }
-    
-    def _diagnose_cpu(self):
-        cpu = psutil.cpu_percent(interval=1, percpu=True)
-        
-        return {
-            'issue': 'CPU Usage',
-            'diagnosis': [f"Total: {sum(cpu)/len(cpu):.1f}%", f"Cores: {len(cpu)}"],
-            'suggestions': [
-                "Check top processes: top -b -n 1 | head -20",
-                "Check temperature: sensors",
-                "Consider process priorities: renice"
-            ]
-        }
-    
-    def _diagnose_network(self):
-        net = psutil.net_io_counters()
-        connections = psutil.net_connections()
-        
-        return {
-            'issue': 'Network Status',
-            'diagnosis': [
-                f"Sent: {net.bytes_sent/1024**2:.1f}MB",
-                f"Received: {net.bytes_recv/1024**2:.1f}MB",
-                f"Connections: {len(connections)}"
-            ],
-            'suggestions': [
-                "Check open ports: netstat -tulpn",
-                "Monitor traffic: iftop or nethogs",
-                "Test connectivity: ping -c 4 google.com"
-            ]
-        }
-    
-    def _diagnose_crash(self):
-        try:
-            with open('/var/log/syslog', 'r') as f:
-                logs = f.readlines()[-50:]
-                errors = [l for l in logs if 'error' in l.lower()]
-        except:
-            errors = []
-        
-        return {
-            'issue': 'System Crash Analysis',
-            'diagnosis': [f"Recent errors: {len(errors)}"],
-            'suggestions': [
-                "Check full logs: journalctl -xe",
-                "Check kernel messages: dmesg | tail -20",
-                "Check system status: systemctl --failed"
-            ]
-        }
-    
-    def _general_diagnosis(self):
-        return {
-            'issue': 'General System Check',
-            'diagnosis': ['Running standard diagnostics'],
-            'suggestions': [
-                "Run 'mimir status' for overview",
-                "Check 'mimir health' for health score",
-                "Run 'mimir alerts' for active alerts"
-            ]
-        }
-    
-    def suggest_optimization(self):
+    def suggest_optimization(self) -> list:
         """Suggest system optimizations"""
         optimizations = []
         
-        # Memory optimization
         mem = psutil.virtual_memory()
         if mem.percent > 80:
             optimizations.append({
@@ -280,7 +325,6 @@ class AICopilot:
                 'benefit': 'Free up RAM'
             })
         
-        # Disk optimization
         disk = psutil.disk_usage('/')
         if disk.percent > 80:
             optimizations.append({
@@ -290,21 +334,4 @@ class AICopilot:
                 'benefit': 'Free disk space'
             })
         
-        # CPU optimization
-        cpu = psutil.cpu_percent()
-        if cpu > 70:
-            processes = []
-            for proc in psutil.process_iter(['name', 'cpu_percent']):
-                if proc.info['cpu_percent'] > 20:
-                    processes.append(proc.info)
-            
-            if processes:
-                optimizations.append({
-                    'area': 'cpu',
-                    'suggestion': 'High CPU processes detected',
-                    'processes': processes[:3],
-                    'benefit': 'Reduce CPU load'
-                })
-        
         return optimizations
-
